@@ -12,7 +12,7 @@ type Params struct {
 func Run(p Params, events chan<- Event, keyPresses <-chan rune) {
 
 	//	TODO: Put the missing channels in here.
-
+	//
 	filename := make(chan string)
 	output := make(chan uint8)
 	input := make(chan uint8)
