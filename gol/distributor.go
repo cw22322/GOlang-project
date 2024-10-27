@@ -89,8 +89,12 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
-func worker(startY, endY, startX, endX int, world [][]byte) {
-
+func worker(startY, endY int, p Params, out chan<- [][]uint8) {
+	worldSlice := make([][]uint8, endY-startY)
+	for i := range worldSlice {
+		worldSlice[i] = make([]uint8, p.ImageWidth)
+	}
+	out <- worldSlice
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -111,12 +115,23 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
+	workerHeight := p.ImageHeight / p.Threads
+	out := make([]chan [][]uint8, p.Threads)
+	for i := range out {
+		out[i] = make(chan [][]uint8)
+	}
+
 	turn := 0
 	c.events <- StateChange{turn, Executing}
 
 	// TODO: Execute all turns of the Game of Life.
 
 	for turn = 0; turn < p.Turns; turn++ {
+
+		for i := 0; i < p.Threads; i++ {
+			go worker(i*workerHeight, (i+1)*workerHeight, World, p, out[i])
+		}
+
 		World = calculateNextState(p, World)
 	}
 	alive := calculateAliveCells(p, World)
@@ -132,7 +147,6 @@ func distributor(p Params, c distributorChannels) {
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
-	//false <- c.ioIdle
 
 	c.events <- StateChange{turn, Quitting}
 
