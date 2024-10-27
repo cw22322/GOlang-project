@@ -1,7 +1,6 @@
 package gol
 
 import (
-	"fmt"
 	"strconv"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -90,45 +89,27 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
+func worker(startY, endY, startX, endX int, world [][]byte) {
+
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 
-	//RPC Dial
-	/*client, err := rpc.Dial("tcp", "127.0.0.1:8030")
-	if err != nil {
-		log.Fatal("Cannot connect to server:", err)
-	}*/
-
-	var filename = strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + ".pmg"
-	fmt.Println(filename)
-	// rows := p.ImageHeight / p.Threads
+	c.ioCommand <- ioInput
+	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
+	c.ioFilename <- filename
 
 	World := make([][]uint8, p.ImageHeight)
 	for i := range World {
 		World[i] = make([]uint8, p.ImageWidth)
-		for j := 0; j < p.ImageWidth; j++ {
-		}
 	}
-
-	for i := range World {
-		for j := 0; j < p.ImageWidth; j++ {
-			World[i][j] = <-c.ioInput
-		}
-	}
-
-	c.ioCommand <- ioInput
-	c.ioFilename <- filename
 
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
-
-			value, _ := <-c.ioInput // Receive a value from the channel
-
-			World[y][x] = value
+			World[y][x] = <-c.ioInput
 		}
 	}
-
-	// TODO: Create a 2D slice to store the world.
 
 	turn := 0
 	c.events <- StateChange{turn, Executing}
