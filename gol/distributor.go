@@ -93,8 +93,15 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 
+	//RPC Dial
+	/*client, err := rpc.Dial("tcp", "127.0.0.1:8030")
+	if err != nil {
+		log.Fatal("Cannot connect to server:", err)
+	}*/
+
 	var filename = strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + ".pmg"
 	fmt.Println(filename)
+	// rows := p.ImageHeight / p.Threads
 
 	World := make([][]uint8, p.ImageHeight)
 	for i := range World {
