@@ -89,12 +89,13 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
-func worker(startY, endY int, p Params, out chan<- [][]byte) {
-	worldSlice := make([][]uint8, endY-startY)
-	for i := range worldSlice {
-		worldSlice[i] = make([]uint8, p.ImageWidth)
-	}
-	out <- worldSlice
+func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
+
+	worldSlice := world[startY:endY]
+
+	newWorld := calculateNextState(p, worldSlice)
+
+	out <- newWorld
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -104,9 +105,9 @@ func distributor(p Params, c distributorChannels) {
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
 
-	World := make([][]uint8, p.ImageHeight)
+	World := make([][]byte, p.ImageHeight)
 	for i := range World {
-		World[i] = make([]uint8, p.ImageWidth)
+		World[i] = make([]byte, p.ImageWidth)
 	}
 
 	for y := 0; y < p.ImageHeight; y++ {
@@ -116,9 +117,9 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	workerHeight := p.ImageHeight / p.Threads
-	out := make([]chan [][]uint8, p.Threads)
+	out := make([]chan [][]byte, p.Threads)
 	for i := range out {
-		out[i] = make(chan [][]uint8)
+		out[i] = make(chan [][]byte)
 	}
 
 	turn := 0
@@ -126,12 +127,10 @@ func distributor(p Params, c distributorChannels) {
 
 	// TODO: Execute all turns of the Game of Life.
 
-	newWorld := make([][]uint8, p.ImageHeight)
-
 	for turn = 0; turn < p.Turns; turn++ {
 
 		for i := 0; i < p.Threads; i++ {
-			go worker(i*workerHeight, (i+1)*workerHeight, World, p, out[i])
+			go worker(i*workerHeight, (i+1)*workerHeight, p, World, out[])
 		}
 
 		World = calculateNextState(p, World)
