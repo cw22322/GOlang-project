@@ -130,7 +130,7 @@ func distributor(p Params, c distributorChannels) {
 	for turn = 0; turn < p.Turns; turn++ {
 
 		for i := 0; i < p.Threads; i++ {
-			go worker(i*workerHeight, (i+1)*workerHeight, p, World, out[])
+			go worker(i*workerHeight, (i+1)*workerHeight, p, World, out[i])
 		}
 
 		World = calculateNextState(p, World)
