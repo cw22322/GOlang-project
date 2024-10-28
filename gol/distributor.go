@@ -89,7 +89,7 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
-func worker(startY, endY int, p Params, out chan<- [][]uint8) {
+func worker(startY, endY int, p Params, out chan<- [][]byte) {
 	worldSlice := make([][]uint8, endY-startY)
 	for i := range worldSlice {
 		worldSlice[i] = make([]uint8, p.ImageWidth)
@@ -125,6 +125,8 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Executing}
 
 	// TODO: Execute all turns of the Game of Life.
+
+	newWorld := make([][]uint8, p.ImageHeight)
 
 	for turn = 0; turn < p.Turns; turn++ {
 
