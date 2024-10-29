@@ -1,6 +1,8 @@
 package gol
 
 import (
+	"flag"
+	"net/rpc"
 	"strconv"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -12,6 +14,10 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+}
+
+func callServer(client *rpc.Client, message string) {
+
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -94,6 +100,16 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
+
+	server := flag.String("server", "127.0.0.1:8030", "IP:Port string to connect to as server")
+	flag.Parse()
+	client, _ := rpc.Dial("tcp", *server)
+	defer func(client *rpc.Client) {
+		err := client.Close()
+		if err != nil {
+
+		}
+	}(client)
 
 	World := make([][]uint8, p.ImageHeight)
 	for i := range World {
