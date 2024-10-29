@@ -32,8 +32,8 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 		newWorld[i] = make([]byte, p.ImageWidth)
 	}
 
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
+	for y := 0; y < len(world); y++ {
+		for x := 0; x < len(world[0]); x++ {
 			alive := 0
 
 			for dy := -1; dy <= 1; dy++ {
@@ -45,18 +45,18 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 					nx, ny := dx+x, dy+y
 
 					if nx < 0 {
-						nx = p.ImageWidth - 1
+						nx = len(world[0]) - 1
 					}
 
 					if ny < 0 {
-						ny = p.ImageHeight - 1
+						ny = len(world) - 1
 					}
 
-					if nx >= p.ImageWidth {
+					if nx >= len(world[0]) {
 						nx = 0
 					}
 
-					if ny >= p.ImageHeight {
+					if ny >= len(world) {
 						ny = 0
 					}
 
