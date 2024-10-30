@@ -1,7 +1,6 @@
 package gol
 
 import (
-	"flag"
 	"fmt"
 	"net/rpc"
 	"strconv"
@@ -24,7 +23,7 @@ type Request struct {
 }
 
 type Response struct {
-	lastWorld [][]byte
+	LastWorld [][]byte
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -107,52 +106,47 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
-	serverAddr := "127.0.0.1:8030"
+	serverAddr := "127.0.0.1:8031"
 
-	flag.Parse()
 	client, err := rpc.Dial("tcp", serverAddr)
-	defer func(client *rpc.Client) {
-		err := client.Close()
-		if err != nil {
+	if err != nil {
+		fmt.Println("Error connecting to server:", err)
+		return
+	}
+	defer client.Close()
 
-		}
-	}(client)
-
+	// Load initial world state from input
 	World := make([][]byte, p.ImageHeight)
 	for i := range World {
 		World[i] = make([]byte, p.ImageWidth)
-		for j := 0; j < p.ImageWidth; j++ {
-		}
 	}
-
 	for i := range World {
 		for j := 0; j < p.ImageWidth; j++ {
 			World[i][j] = <-c.ioInput
 		}
 	}
 
-	// TODO: Create a 2D slice to store the world.
-	turn := 0
 	request := Request{
 		Params: p,
 		World:  World,
-		Turns:  turn,
+		Turns:  p.Turns,
 	}
+
 	var response Response
 	err = client.Call("GameOfLife.ProcessTurns", request, &response)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error during RPC call:", err)
 		return
 	}
-	World = response.lastWorld
+
+	World = response.LastWorld
 
 	alive := calculateAliveCells(p, World)
-	c.events <- FinalTurnComplete{turn, alive}
-	// Make sure that the Io has finished any output before exiting.
-	c.ioCommand <- ioCheckIdle
-	//false <- c.ioIdle
+	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: alive}
 
-	c.events <- StateChange{turn, Quitting}
-	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
+
+	c.events <- StateChange{p.Turns, Quitting}
 	close(c.events)
 }
