@@ -2,6 +2,7 @@ package gol
 
 import (
 	"flag"
+	"fmt"
 	"net/rpc"
 	"strconv"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -16,8 +17,14 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-func callServer(client *rpc.Client, message string) {
+type Request struct {
+	Params Params
+	World  [][]byte
+	Turns  int
+}
 
+type Response struct {
+	lastWorld [][]byte
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -100,10 +107,10 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
+	serverAddr := "127.0.0.1:8030"
 
-	server := flag.String("server", "127.0.0.1:8030", "IP:Port string to connect to as server")
 	flag.Parse()
-	client, _ := rpc.Dial("tcp", *server)
+	client, err := rpc.Dial("tcp", serverAddr)
 	defer func(client *rpc.Client) {
 		err := client.Close()
 		if err != nil {
@@ -111,9 +118,9 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}(client)
 
-	World := make([][]uint8, p.ImageHeight)
+	World := make([][]byte, p.ImageHeight)
 	for i := range World {
-		World[i] = make([]uint8, p.ImageWidth)
+		World[i] = make([]byte, p.ImageWidth)
 		for j := 0; j < p.ImageWidth; j++ {
 		}
 	}
@@ -126,24 +133,21 @@ func distributor(p Params, c distributorChannels) {
 
 	// TODO: Create a 2D slice to store the world.
 	turn := 0
-	c.events <- StateChange{turn, Executing}
-
-	// TODO: Execute all turns of the Game of Life.
-
-	for turn = 0; turn < p.Turns; turn++ {
-		World = calculateNextState(p, World)
+	request := Request{
+		Params: p,
+		World:  World,
+		Turns:  turn,
 	}
+	var response Response
+	err = client.Call("GameOfLife.ProcessTurns", request, &response)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	World = response.lastWorld
+
 	alive := calculateAliveCells(p, World)
-
-	// TODO: Report the final state using FinalTurnCompleteEvent.
-
-	Finalturn := FinalTurnComplete{
-		CompletedTurns: turn,
-		Alive:          alive,
-	}
-
-	c.events <- Finalturn
-
+	c.events <- FinalTurnComplete{turn, alive}
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	//false <- c.ioIdle

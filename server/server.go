@@ -17,7 +17,26 @@ type Params struct {
 	ImageHeight int
 }
 
-type gameOfLife struct{}
+type Request struct {
+	Params Params
+	World  [][]byte
+	turns  int
+}
+
+type Response struct {
+	lastWorld [][]byte
+}
+
+type GameOfLife struct{}
+
+func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
+	world := req.World
+	for turn := 0; turn < req.turns; turn++ {
+		world = calculateNextState(req.Params, world)
+	}
+	res.lastWorld = world
+	return nil
+}
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	var alivecells []util.Cell
@@ -94,31 +113,27 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
-func (g *gameOfLife) worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
-	worldSlice := world[startY:endY]
-
-	newWorld := calculateNextState(p, worldSlice)
-
-	out <- newWorld
-
-	return
-}
-
 func main() {
 	portAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
-	err := rpc.Register(&gameOfLife{})
+	game := new(GameOfLife)
+	err := rpc.Register(game)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	listener, _ := net.Listen("tcp", ":"+*portAddr)
-	defer func(listener net.Listener) {
-		err := listener.Close()
-		if err != nil {
-			println(err)
-		}
-	}(listener)
-	rpc.Accept(listener)
+	listener, err := net.Listen("tcp", ":"+*portAddr)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	defer listener.Close()
+	fmt.Println("Server listening on current port:", *portAddr)
+
+	go func() {
+		rpc.Accept(listener)
+	}()
+
 }
