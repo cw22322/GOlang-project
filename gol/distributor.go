@@ -2,6 +2,8 @@ package gol
 
 import (
 	"strconv"
+	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -16,8 +18,8 @@ type distributorChannels struct {
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	var alivecells []util.Cell
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
+	for y := 0; y < len(world); y++ {
+		for x := 0; x < len(world[0]); x++ {
 			if world[y][x] != 0 {
 				alivecells = append(alivecells, util.Cell{X: x, Y: y})
 			}
@@ -68,12 +70,10 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 
 			}
 			if world[y][x] == 255 {
-				if alive < 2 {
+				if alive < 2 || alive > 3 {
 					newWorld[y][x] = 0
-				} else if alive == 2 || alive == 3 {
-					newWorld[y][x] = 255
 				} else {
-					newWorld[y][x] = 0
+					newWorld[y][x] = 255
 				}
 			} else {
 				if alive == 3 {
@@ -121,19 +121,41 @@ func distributor(p Params, c distributorChannels) {
 	for i := range out {
 		out[i] = make(chan [][]byte)
 	}
+	var mu sync.Mutex
 
 	turn := 0
 	c.events <- StateChange{turn, Executing}
 
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				c.events <- AliveCellsCount{turn, len(calculateAliveCells(p, World))}
+				mu.Unlock()
+			default:
+				if turn == p.Turns {
+					return
+				}
+
+			}
+		}
+	}()
+
 	// TODO: Execute all turns of the Game of Life.
 
 	for turn = 0; turn < p.Turns; turn++ {
-
+		// Start worker goroutines
 		for i := 0; i < p.Threads; i++ {
 			go worker(i*workerHeight, (i+1)*workerHeight, p, World, out[i])
 		}
 
+		mu.Lock()
 		World = calculateNextState(p, World)
+		mu.Unlock()
+
 	}
 	alive := calculateAliveCells(p, World)
 
