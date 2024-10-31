@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -28,15 +27,6 @@ type Response struct {
 }
 
 type GameOfLife struct{}
-
-func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
-	world := req.World
-	for turn := 0; turn < req.Turns; turn++ {
-		world = calculateNextState(req.Params, world)
-	}
-	res.LastWorld = world
-	return nil
-}
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	var alivecells []util.Cell
@@ -113,29 +103,23 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
+func (g *GameOfLife) ProcessTurns(req Request, res *Response) {
+	world := req.World
+	for turn := 0; turn < req.Turns; turn++ {
+		world = calculateNextState(req.Params, world)
+	}
+	res.LastWorld = world
+}
+
 func main() {
 	portAddr := flag.String("port", "8031", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
-
 	game := new(GameOfLife)
-	err := rpc.Register(game)
-	if err != nil {
-		fmt.Println("Error registering RPC:", err)
-		return
-	}
-
-	listener, err := net.Listen("tcp", ":"+*portAddr)
-	if err != nil {
-		fmt.Println("Error starting listener:", err)
-		return
-	}
+	rpc.Register(game)
+	listener, _ := net.Listen("tcp", ":"+*portAddr)
 	defer listener.Close()
-	fmt.Println("Server listening on port:", *portAddr)
 
-	go func() {
-		rpc.Accept(listener)
-	}()
+	rpc.Accept(listener)
 
-	select {}
 }
