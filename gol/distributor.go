@@ -1,8 +1,6 @@
 package gol
 
 import (
-	"fmt"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -100,41 +98,9 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
 	out <- newWorld
 }
 
-func PGM(world [][]byte, filename string, p Params, turn int) {
-
-	_ = os.MkdirAll("out", os.ModePerm)
-
-	fmt.Println("Saving file to:", "out/"+filename+".pgm")
-
-	file, err := os.Create("out/" + filename + "x" + strconv.Itoa(turn) + ".pgm")
-	util.Check(err)
-	defer file.Close()
-
-	_, _ = file.WriteString("P5\n")
-	_, _ = file.WriteString(strconv.Itoa(p.ImageWidth) + " ")
-	_, _ = file.WriteString(strconv.Itoa(p.ImageHeight) + "\n")
-	_, _ = file.WriteString("255\n")
-
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			cell := world[y][x]
-			if cell == 255 {
-				file.Write([]byte{255})
-			} else {
-				file.Write([]byte{0})
-			}
-		}
-	}
-
-	err = file.Sync()
-	util.Check(err)
-
-	fmt.Println("File", filename, "output done")
-}
-
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-
+	turn := 0
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
@@ -157,7 +123,6 @@ func distributor(p Params, c distributorChannels) {
 	}
 	var mu sync.Mutex
 
-	turn := 0
 	c.events <- StateChange{turn, Executing}
 
 	go func() {
@@ -192,7 +157,6 @@ func distributor(p Params, c distributorChannels) {
 
 	}
 	alive := calculateAliveCells(p, World)
-	PGM(World, filename, p, turn)
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
@@ -204,10 +168,19 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- Finalturn
 
 	// Make sure that the Io has finished any output before exiting.
-	c.ioCommand <- ioCheckIdle
 
-	c.events <- StateChange{turn, Quitting}
+	c.ioCommand <- ioOutput
+	filename = filename + "x" + strconv.Itoa(turn)
+	c.ioFilename <- filename
+
+	for y := 0; y < len(World); y++ {
+		for x := 0; x < len(World[0]); x++ {
+			c.ioOutput <- World[y][x]
+		}
+	}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
+	c.ioCommand <- ioCheckIdle
+	c.events <- StateChange{turn, Quitting}
 	close(c.events)
 }
