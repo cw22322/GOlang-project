@@ -97,6 +97,14 @@ func distributor(p Params, c distributorChannels) {
 	alive := calculateAliveCells(p, World)
 	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: alive}
 
+	c.ioCommand <- ioOutput
+	filename = filename + "x" + strconv.Itoa(p.Turns)
+	c.ioFilename <- filename
+	for y := 0; y < len(World); y++ {
+		for x := 0; x < len(World[0]); x++ {
+			c.ioOutput <- World[y][x]
+		}
+	}
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
