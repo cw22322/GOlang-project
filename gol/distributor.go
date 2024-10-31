@@ -120,7 +120,7 @@ func PGM(world [][]byte, filename string, p Params, turn int) {
 			cell := world[y][x]
 			if cell == 255 {
 				file.Write([]byte{255})
-			} else { // Dead cell
+			} else {
 				file.Write([]byte{0})
 			}
 		}
