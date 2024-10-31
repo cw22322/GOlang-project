@@ -2,10 +2,9 @@ package main
 
 import (
 	"flag"
-	"math/rand"
 	"net"
 	"net/rpc"
-	"time"
+	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -23,15 +22,22 @@ type Request struct {
 }
 
 type Response struct {
-	LastWorld [][]byte
+	LastWorld  [][]byte
+	AliveCells []util.Cell
+	Turns      int
 }
 
-type GameOfLife struct{}
+type GameOfLife struct {
+	world [][]byte
+}
+
+var turn int
+var mu = sync.Mutex{}
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	var alivecells []util.Cell
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
+	for y := 0; y < len(world); y++ {
+		for x := 0; x < len(world[0]); x++ {
 			if world[y][x] != 0 {
 				alivecells = append(alivecells, util.Cell{X: x, Y: y})
 			}
@@ -103,18 +109,33 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
-func (g *GameOfLife) ProcessTurns(req Request, res *Response) {
-	world := req.World
-	for turn := 0; turn < req.Turns; turn++ {
-		world = calculateNextState(req.Params, world)
+func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
+	turn = 0
+	g.world = req.World
+	for turn < req.Turns {
+		mu.Lock()
+		g.world = calculateNextState(req.Params, g.world)
+		turn++
+		mu.Unlock()
 	}
-	res.LastWorld = world
+	res.LastWorld = g.world
+
+	return
+}
+
+func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
+	mu.Lock()
+	alive := calculateAliveCells(req.Params, g.world)
+	res.AliveCells = alive
+	res.Turns = turn
+	mu.Unlock()
+
+	return
 }
 
 func main() {
-	portAddr := flag.String("port", "8031", "Port to listen on")
+	portAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
-	rand.Seed(time.Now().UnixNano())
 	game := new(GameOfLife)
 	rpc.Register(game)
 	listener, _ := net.Listen("tcp", ":"+*portAddr)

@@ -1,9 +1,10 @@
 package gol
 
 import (
-	"fmt"
 	"net/rpc"
 	"strconv"
+	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -23,7 +24,9 @@ type Request struct {
 }
 
 type Response struct {
-	LastWorld [][]byte
+	LastWorld  [][]byte
+	AliveCells []util.Cell
+	Turns      int
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -43,13 +46,9 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
-	serverAddr := "127.0.0.1:8031"
+	serverAddr := "127.0.0.1:8030"
 
-	client, err := rpc.Dial("tcp", serverAddr)
-	if err != nil {
-		fmt.Println("Error connecting to server:", err)
-		return
-	}
+	client, _ := rpc.Dial("tcp", serverAddr)
 	defer client.Close()
 
 	// Load initial world state from input
@@ -69,15 +68,32 @@ func distributor(p Params, c distributorChannels) {
 		Turns:  p.Turns,
 	}
 
+	var mu sync.Mutex
+	go func() {
+		var response Response
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+
+				mu.Lock()
+				client.Call("GameOfLife.SendAlive", request, &response)
+				foundalive := len(response.AliveCells)
+				c.events <- AliveCellsCount{response.Turns, foundalive}
+				mu.Unlock()
+			default:
+				if response.Turns == p.Turns {
+					return
+				}
+
+			}
+		}
+	}()
+
 	var response Response
-	err = client.Call("GameOfLife.ProcessTurns", request, &response)
-	if err != nil {
-		fmt.Println("Error during RPC call:", err)
-		return
-	}
-
+	client.Call("GameOfLife.ProcessTurns", request, &response)
 	World = response.LastWorld
-
 	alive := calculateAliveCells(p, World)
 	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: alive}
 
