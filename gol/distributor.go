@@ -151,14 +151,16 @@ func distributor(p Params, c distributorChannels) {
 			case key := <-c.keyPresses:
 				switch key {
 				case 's':
-
+					mu.Lock()
 					for y := 0; y < len(World); y++ {
 						for x := 0; x < len(World[0]); x++ {
 							c.ioOutput <- World[y][x]
 						}
 					}
 					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
+					mu.Unlock()
 				case 'q':
+					mu.Lock()
 					alive := calculateAliveCells(p, World)
 					for y := 0; y < len(World); y++ {
 						for x := 0; x < len(World[0]); x++ {
@@ -167,25 +169,28 @@ func distributor(p Params, c distributorChannels) {
 					}
 					c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
 					c.events <- StateChange{turn, Quitting}
-					close(c.events)
+					mu.Unlock()
 					return
 				case 'p':
 					c.events <- StateChange{turn, Paused}
 					paused := true
-					if paused {
+					for paused {
 						command := <-c.keyPresses
 						switch command {
 						case 'p':
 							paused = false
 							c.events <- StateChange{turn, Executing}
 						case 's':
+							mu.Lock()
 							c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
 							for y := 0; y < len(World); y++ {
 								for x := 0; x < len(World[0]); x++ {
 									c.ioOutput <- World[y][x]
 								}
 							}
+							mu.Unlock()
 						case 'q':
+							mu.Lock()
 							alive := calculateAliveCells(p, World)
 							c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
 							c.events <- StateChange{turn, Quitting}
@@ -194,7 +199,7 @@ func distributor(p Params, c distributorChannels) {
 									c.ioOutput <- World[y][x]
 								}
 							}
-							close(c.events)
+							mu.Unlock()
 							return
 						}
 					}
