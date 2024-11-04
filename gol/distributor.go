@@ -106,6 +106,9 @@ func distributor(p Params, c distributorChannels) {
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
 
+	pauseChan := make(chan bool)
+	quitChan := make(chan bool)
+
 	World := make([][]byte, p.ImageHeight)
 	for i := range World {
 		World[i] = make([]byte, p.ImageWidth)
@@ -135,11 +138,18 @@ func distributor(p Params, c distributorChannels) {
 				mu.Lock()
 				c.events <- AliveCellsCount{turn, len(calculateAliveCells(p, World))}
 				mu.Unlock()
-			default:
-				if turn == p.Turns {
-					return
-				}
 
+			case <-pauseChan:
+				for {
+					select {
+					case <-pauseChan:
+						break
+					case <-quitChan:
+						return
+					}
+				}
+			case <-quitChan:
+				return
 			}
 		}
 	}()
@@ -169,6 +179,8 @@ func distributor(p Params, c distributorChannels) {
 					}
 					c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
 					c.events <- StateChange{turn, Quitting}
+					close(quitChan)
+					close(c.events)
 					mu.Unlock()
 					return
 				case 'p':
@@ -199,6 +211,8 @@ func distributor(p Params, c distributorChannels) {
 									c.ioOutput <- World[y][x]
 								}
 							}
+							close(quitChan)
+							close(c.events)
 							mu.Unlock()
 							return
 						}
