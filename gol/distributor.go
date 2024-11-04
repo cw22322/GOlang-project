@@ -14,6 +14,7 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+	keyPresses <-chan rune
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -139,6 +140,65 @@ func distributor(p Params, c distributorChannels) {
 					return
 				}
 
+			}
+		}
+	}()
+
+	go func() {
+		filename = filename + "x" + strconv.Itoa(turn)
+		for {
+			select {
+			case key := <-c.keyPresses:
+				switch key {
+				case 's':
+
+					for y := 0; y < len(World); y++ {
+						for x := 0; x < len(World[0]); x++ {
+							c.ioOutput <- World[y][x]
+						}
+					}
+					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
+				case 'q':
+					alive := calculateAliveCells(p, World)
+					for y := 0; y < len(World); y++ {
+						for x := 0; x < len(World[0]); x++ {
+							c.ioOutput <- World[y][x]
+						}
+					}
+					c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
+					c.events <- StateChange{turn, Quitting}
+					close(c.events)
+					return
+				case 'p':
+					c.events <- StateChange{turn, Paused}
+					paused := true
+					if paused {
+						command := <-c.keyPresses
+						switch command {
+						case 'p':
+							paused = false
+							c.events <- StateChange{turn, Executing}
+						case 's':
+							c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
+							for y := 0; y < len(World); y++ {
+								for x := 0; x < len(World[0]); x++ {
+									c.ioOutput <- World[y][x]
+								}
+							}
+						case 'q':
+							alive := calculateAliveCells(p, World)
+							c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
+							c.events <- StateChange{turn, Quitting}
+							for y := 0; y < len(World); y++ {
+								for x := 0; x < len(World[0]); x++ {
+									c.ioOutput <- World[y][x]
+								}
+							}
+							close(c.events)
+							return
+						}
+					}
+				}
 			}
 		}
 	}()
