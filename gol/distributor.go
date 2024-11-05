@@ -15,6 +15,7 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+	KeyPresses <-chan rune
 }
 
 type Request struct {
@@ -27,18 +28,6 @@ type Response struct {
 	LastWorld  [][]byte
 	AliveCells []util.Cell
 	Turns      int
-}
-
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
-	var alivecells []util.Cell
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			if world[y][x] != 0 {
-				alivecells = append(alivecells, util.Cell{X: x, Y: y})
-			}
-		}
-	}
-	return alivecells
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -75,8 +64,15 @@ func distributor(p Params, c distributorChannels) {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ticker.C:
+			case key := <-c.KeyPresses:
+				switch key {
+				case 's':
+					mu.Lock()
+					client.Call("GameOfLife.Save", nil, &response)
 
+				}
+
+			case <-ticker.C:
 				mu.Lock()
 				client.Call("GameOfLife.SendAlive", request, &response)
 				foundalive := len(response.AliveCells)
@@ -94,7 +90,7 @@ func distributor(p Params, c distributorChannels) {
 	var response Response
 	client.Call("GameOfLife.ProcessTurns", request, &response)
 	World = response.LastWorld
-	alive := calculateAliveCells(p, World)
+	alive := response.AliveCells
 	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: alive}
 
 	c.ioCommand <- ioOutput

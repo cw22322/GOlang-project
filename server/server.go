@@ -34,19 +34,9 @@ type GameOfLife struct {
 var turn int
 var mu = sync.Mutex{}
 
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
-	var alivecells []util.Cell
-	for y := 0; y < len(world); y++ {
-		for x := 0; x < len(world[0]); x++ {
-			if world[y][x] != 0 {
-				alivecells = append(alivecells, util.Cell{X: x, Y: y})
-			}
-		}
-	}
-	return alivecells
-}
-
-func calculateNextState(p Params, world [][]byte) [][]byte {
+func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) {
+	p := req.Params
+	world := req.World
 	newWorld := make([][]byte, p.ImageHeight)
 	for i := range newWorld {
 		newWorld[i] = make([]byte, p.ImageWidth)
@@ -105,36 +95,12 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 			}
 		}
 	}
-
-	return newWorld
-}
-
-func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
-	turn = 0
-	g.world = req.World
-	for turn < req.Turns {
-		mu.Lock()
-		g.world = calculateNextState(req.Params, g.world)
-		turn++
-		mu.Unlock()
-	}
-	res.LastWorld = g.world
-
-	return
-}
-
-func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
-	mu.Lock()
-	alive := calculateAliveCells(req.Params, g.world)
-	res.AliveCells = alive
-	res.Turns = turn
-	mu.Unlock()
-
+	res.LastWorld = newWorld
 	return
 }
 
 func main() {
-	portAddr := flag.String("port", "8030", "Port to listen on")
+	portAddr := flag.String("port", "8031", "Port to listen on")
 	flag.Parse()
 	game := new(GameOfLife)
 	rpc.Register(game)
