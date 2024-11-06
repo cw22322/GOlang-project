@@ -15,7 +15,7 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
-	keyPresses <-chan rune // Add this line to include keyPresses channel
+	keyPresses <-chan rune
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -30,14 +30,20 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	return alivecells
 }
 
-func calculateNextState(p Params, world [][]byte) [][]byte {
-	newWorld := make([][]byte, p.ImageHeight)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, p.ImageWidth)
+func calculateNextStateSlice(p Params, world [][]byte, startY, endY int, flippedCells chan<- []util.Cell) [][]byte {
+	sliceHeight := endY - startY
+	width := len(world[0])
+
+	newSlice := make([][]byte, sliceHeight)
+	for i := range newSlice {
+		newSlice[i] = make([]byte, width)
 	}
 
-	for y := 0; y < len(world); y++ {
-		for x := 0; x < len(world[0]); x++ {
+	height := len(world)
+	var localFlipped []util.Cell
+
+	for y := startY; y < endY; y++ {
+		for x := 0; x < width; x++ {
 			alive := 0
 
 			for dy := -1; dy <= 1; dy++ {
@@ -46,58 +52,46 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 						continue
 					}
 
-					nx, ny := dx+x, dy+y
-
-					if nx < 0 {
-						nx = len(world[0]) - 1
-					}
-
-					if ny < 0 {
-						ny = len(world) - 1
-					}
-
-					if nx >= len(world[0]) {
-						nx = 0
-					}
-
-					if ny >= len(world) {
-						ny = 0
-					}
+					nx, ny := (x+dx+width)%width, (y+dy+height)%height
 
 					if world[ny][nx] == 255 {
 						alive++
 					}
-
 				}
-
 			}
+
+			cellChanged := false
 			if world[y][x] == 255 {
 				if alive < 2 || alive > 3 {
-					newWorld[y][x] = 0
+					newSlice[y-startY][x] = 0
+					cellChanged = true
 				} else {
-					newWorld[y][x] = 255
+					newSlice[y-startY][x] = 255
 				}
 			} else {
 				if alive == 3 {
-					newWorld[y][x] = 255
-
+					newSlice[y-startY][x] = 255
+					cellChanged = true
 				} else {
-					newWorld[y][x] = 0
+					newSlice[y-startY][x] = 0
 				}
+			}
+
+			if cellChanged {
+				localFlipped = append(localFlipped, util.Cell{X: x, Y: y})
 			}
 		}
 	}
 
-	return newWorld
+	// Send the local flipped cells back to the main thread
+	flippedCells <- localFlipped
+
+	return newSlice
 }
 
-func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
-
-	worldSlice := world[startY:endY]
-
-	newWorld := calculateNextState(p, worldSlice)
-
-	out <- newWorld
+func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, flippedCells chan<- []util.Cell) {
+	newWorldSlice := calculateNextStateSlice(p, world, startY, endY, flippedCells)
+	out <- newWorldSlice
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -123,6 +117,12 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
+	// Send CellFlipped events for initial alive cells
+	initialAliveCells := calculateAliveCells(p, World)
+	for _, cell := range initialAliveCells {
+		c.events <- CellFlipped{CompletedTurns: turn, Cell: cell}
+	}
+
 	stateChan := make(chan State, 1)
 	c.events <- StateChange{turn, Executing}
 
@@ -145,28 +145,39 @@ func distributor(p Params, c distributorChannels) {
 					}
 					mu.Unlock()
 				case 's':
-					// Save the current state as a PGM image
 					mu.Lock()
+					// Ensure IO operations are idle
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
+
+					// Start outputting the image
 					c.ioCommand <- ioOutput
-					outputFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turn)
+					outputFilename := fmt.Sprintf("%vx%vx%v.pgm", p.ImageWidth, p.ImageHeight, turn)
 					c.ioFilename <- outputFilename
 
+					// Send the world data
 					for y := 0; y < len(World); y++ {
 						for x := 0; x < len(World[0]); x++ {
 							c.ioOutput <- World[y][x]
 						}
 					}
+
+					// Wait for the IO to finish
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
+
 					mu.Unlock()
+
+					// Send the ImageOutputComplete event with the correct filename
 					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 				case 'q':
 					mu.Lock()
 					quitting = true
-					stateChan <- Quitting
 					mu.Unlock()
+					// Wait for the IO to finish before quitting
+					c.ioCommand <- ioCheckIdle
+					<-c.ioIdle
+					stateChan <- Quitting
 				}
 			case <-ticker.C:
 				mu.Lock()
@@ -178,16 +189,10 @@ func distributor(p Params, c distributorChannels) {
 	}()
 
 	for turn < p.Turns {
-		// Proceed with the simulation for the current turn
 		mu.Lock()
-		World = calculateNextState(p, World)
 		pausedCopy := paused
 		quittingCopy := quitting
-		turn++
 		mu.Unlock()
-
-		// Send TurnComplete event
-		c.events <- TurnComplete{CompletedTurns: turn}
 
 		if pausedCopy {
 			state := <-stateChan
@@ -195,16 +200,22 @@ func distributor(p Params, c distributorChannels) {
 				break
 			}
 		}
-		// Check if quitting flag is set after completing the turn
+
 		if quittingCopy {
 			break
 		}
+
+		// Use worker functions for parallel computation
+		World = parallelCalculateNextStateUsingWorkers(p, World, turn, c)
+
+		turn++
+		// Send TurnComplete event
+		c.events <- TurnComplete{CompletedTurns: turn}
 	}
 
 	ticker.Stop()
 
 	// Handle quitting: final events, save state, cleanup
-	// Complete the current turn if not already completed
 	alive := calculateAliveCells(p, World)
 	c.events <- FinalTurnComplete{
 		CompletedTurns: turn,
@@ -215,7 +226,7 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 	c.ioCommand <- ioOutput
-	outputFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turn)
+	outputFilename := fmt.Sprintf("%vx%vx%v.pgm", p.ImageWidth, p.ImageHeight, turn)
 	c.ioFilename <- outputFilename
 
 	for y := 0; y < len(World); y++ {
@@ -223,9 +234,9 @@ func distributor(p Params, c distributorChannels) {
 			c.ioOutput <- World[y][x]
 		}
 	}
-	// Make sure that the Io has finished any output before exiting.
+	// Wait for IO to finish
 	c.ioCommand <- ioCheckIdle
-	<-c.ioIdle // Wait for IO to finish
+	<-c.ioIdle
 
 	c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 
@@ -234,4 +245,77 @@ func distributor(p Params, c distributorChannels) {
 
 	// Close the channel to stop the SDL goroutine gracefully.
 	close(c.events)
+}
+
+func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, c distributorChannels) [][]byte {
+	height := len(world)
+	width := len(world[0])
+
+	newWorld := make([][]byte, height)
+	for i := range newWorld {
+		newWorld[i] = make([]byte, width)
+	}
+
+	numWorkers := p.Threads
+	if numWorkers > height {
+		numWorkers = height
+	}
+
+	var wg sync.WaitGroup
+	out := make(chan WorkerResult, numWorkers)
+	flippedCellsChan := make(chan []util.Cell, numWorkers)
+
+	sliceHeight := height / numWorkers
+	remainder := height % numWorkers
+
+	startY := 0
+
+	for i := 0; i < numWorkers; i++ {
+		endY := startY + sliceHeight
+		if i < remainder {
+			endY++
+		}
+
+		wg.Add(1)
+		go func(startY, endY int) {
+			defer wg.Done()
+			workerOut := make(chan [][]byte)
+			go worker(startY, endY, p, world, workerOut, flippedCellsChan)
+			newSlice := <-workerOut
+			out <- WorkerResult{startY: startY, slice: newSlice}
+		}(startY, endY)
+
+		startY = endY
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+		close(flippedCellsChan)
+	}()
+
+	// Collect results from workers
+	for result := range out {
+		for i, row := range result.slice {
+			newWorld[result.startY+i] = row
+		}
+	}
+
+	// Collect flipped cells from workers
+	var allFlippedCells []util.Cell
+	for cells := range flippedCellsChan {
+		allFlippedCells = append(allFlippedCells, cells...)
+	}
+
+	// Send CellsFlipped event if there are any flipped cells
+	if len(allFlippedCells) > 0 {
+		c.events <- CellsFlipped{CompletedTurns: turn + 1, Cells: allFlippedCells}
+	}
+
+	return newWorld
+}
+
+type WorkerResult struct {
+	startY int
+	slice  [][]byte
 }
