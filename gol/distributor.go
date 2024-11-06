@@ -152,7 +152,7 @@ func distributor(p Params, c distributorChannels) {
 
 					// Start outputting the image
 					c.ioCommand <- ioOutput
-					outputFilename := fmt.Sprintf("%vx%vx%v.pgm", p.ImageWidth, p.ImageHeight, turn)
+					outputFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turn)
 					c.ioFilename <- outputFilename
 
 					// Send the world data
@@ -173,11 +173,12 @@ func distributor(p Params, c distributorChannels) {
 				case 'q':
 					mu.Lock()
 					quitting = true
-					mu.Unlock()
+					//mu.Unlock()
 					// Wait for the IO to finish before quitting
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
 					stateChan <- Quitting
+					mu.Unlock()
 				}
 			case <-ticker.C:
 				mu.Lock()
@@ -190,9 +191,15 @@ func distributor(p Params, c distributorChannels) {
 
 	for turn < p.Turns {
 		mu.Lock()
+		// Use worker functions for parallel computation
+		World = parallelCalculateNextStateUsingWorkers(p, World, turn, c)
 		pausedCopy := paused
 		quittingCopy := quitting
+		turn++
 		mu.Unlock()
+
+		// Send TurnComplete event
+		c.events <- TurnComplete{CompletedTurns: turn}
 
 		if pausedCopy {
 			state := <-stateChan
@@ -204,13 +211,6 @@ func distributor(p Params, c distributorChannels) {
 		if quittingCopy {
 			break
 		}
-
-		// Use worker functions for parallel computation
-		World = parallelCalculateNextStateUsingWorkers(p, World, turn, c)
-
-		turn++
-		// Send TurnComplete event
-		c.events <- TurnComplete{CompletedTurns: turn}
 	}
 
 	ticker.Stop()
@@ -226,7 +226,7 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 	c.ioCommand <- ioOutput
-	outputFilename := fmt.Sprintf("%vx%vx%v.pgm", p.ImageWidth, p.ImageHeight, turn)
+	outputFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turn)
 	c.ioFilename <- outputFilename
 
 	for y := 0; y < len(World); y++ {
