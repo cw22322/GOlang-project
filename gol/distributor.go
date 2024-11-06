@@ -312,7 +312,7 @@ func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, 
 		c.events <- CellsFlipped{CompletedTurns: turn + 1, Cells: allFlippedCells}
 	}
 
-	return newWorld
+	return newWorld //psda
 }
 
 type WorkerResult struct {
