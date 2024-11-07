@@ -9,7 +9,6 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-var mu = sync.Mutex{}
 var Ports = [2]int{8031, 8032}
 
 type Params struct {
@@ -37,6 +36,8 @@ type Response struct {
 
 type GameOfLife struct {
 	world [][]byte
+	turn  int
+	mu    sync.Mutex
 }
 
 func calculateAliveCells(world [][]byte) []util.Cell {
@@ -74,57 +75,64 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, por
 }
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
+	g.mu.Lock()
 	g.world = req.World
+	g.mu.Unlock()
 	p := req.Params
 	workerCount := 2
 	workerHeight := p.ImageHeight / workerCount
 
-	for turn := 0; turn < p.Turns; turn++ {
+	for i := 0; i < p.Turns; i++ {
 		out := make([]chan [][]byte, workerCount)
-		for i := 0; i < workerCount; i++ {
-			out[i] = make(chan [][]byte)
+		for j := 0; j < workerCount; j++ {
+			out[j] = make(chan [][]byte)
 		}
 
-		for i := 0; i < workerCount; i++ {
-			startY := i * workerHeight
+		for j := 0; j < workerCount; j++ {
+			startY := j * workerHeight
 			endY := startY + workerHeight - 1
-			if i == workerCount-1 {
+			if j == workerCount-1 {
 				endY = p.ImageHeight - 1
 			}
-			go worker(startY, endY, p, g.world, out[i], Ports[i])
+			go worker(startY, endY, p, g.world, out[j], Ports[j])
 		}
 
 		newWorld := make([][]byte, 0, p.ImageHeight)
 
-		for i := 0; i < workerCount; i++ {
-			workerResult := <-out[i]
+		for j := 0; j < workerCount; j++ {
+			workerResult := <-out[j]
 			workerRows := workerResult[1 : len(workerResult)-1]
 			newWorld = append(newWorld, workerRows...)
 		}
+		g.mu.Lock()
+		g.turn = i + 1
 		g.world = newWorld
+		g.mu.Unlock()
 	}
 
+	g.mu.Lock()
 	res.LastWorld = g.world
 	res.AliveCells = calculateAliveCells(g.world)
-	res.Turns = p.Turns
+	res.Turns = g.turn
+	g.mu.Unlock()
 
 	return nil
 }
 
 func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
-	p := req.Params
-	world := req.World
-	alive := calculateAliveCells(world)
+	g.mu.Lock()
+	alive := calculateAliveCells(g.world)
 	res.AliveCells = alive
-	res.Turns = p.Turns
+	res.Turns = g.turn
+	g.mu.Unlock()
 
 	return
 }
 
 func (g *GameOfLife) Save(req Request, res *Response) (err error) {
-	mu.Lock()
+	g.mu.Lock()
 	res.LastWorld = g.world
-	mu.Unlock()
+	g.mu.Unlock()
 	return
 }
 

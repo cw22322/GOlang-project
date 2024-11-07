@@ -69,9 +69,9 @@ func distributor(p Params, c distributorChannels) {
 			case <-ticker.C:
 				mu.Lock()
 				client.Call("GameOfLife.SendAlive", request, &response)
-				mu.Unlock()
 				foundalive := len(response.AliveCells)
 				c.events <- AliveCellsCount{response.Turns, foundalive}
+				mu.Unlock()
 			case <-done:
 				return
 			}
