@@ -10,7 +10,7 @@ import (
 
 var turn int
 var mu = sync.Mutex{}
-ports := [4]int{8031, 8032, 8033, 8034}
+var Ports = [4]int{8031, 8032, 8033, 8034}
 
 type Params struct {
 	Turns       int
@@ -23,6 +23,8 @@ type Request struct {
 	Params Params
 	World  [][]byte
 	Turns  int
+	StartY int
+	EndY   int
 }
 
 type Response struct {
@@ -33,7 +35,6 @@ type Response struct {
 
 type GameOfLife struct {
 	world [][]byte
-
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -46,6 +47,10 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 		}
 	}
 	return alivecells
+}
+
+func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
+
 }
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {

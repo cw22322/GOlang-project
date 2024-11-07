@@ -19,6 +19,8 @@ type Request struct {
 	Params Params
 	World  [][]byte
 	Turns  int
+	StartY int
+	EndY   int
 }
 
 type Response struct {
@@ -37,6 +39,8 @@ var mu = sync.Mutex{}
 func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) {
 	p := req.Params
 	world := req.World
+	startY := req.StartY
+	endY := req.EndY
 	newWorld := make([][]byte, p.ImageHeight)
 	for i := range newWorld {
 		newWorld[i] = make([]byte, p.ImageWidth)
