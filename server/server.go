@@ -31,10 +31,9 @@ type Response struct {
 
 type GameOfLife struct {
 	world [][]byte
+	turn  int
+	mu    sync.Mutex
 }
-
-var turn int
-var mu = sync.Mutex{}
 
 func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) {
 	world := req.World
@@ -54,7 +53,8 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 						continue
 					}
 
-					nx, ny := dx+x, dy+y
+					ny := y + dy
+					nx := (x + dx + p.ImageWidth) % p.ImageWidth
 
 					if nx < 0 {
 						nx = len(world[0]) - 1
@@ -95,11 +95,7 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 			}
 		}
 	}
-	worldToSend := make([][]byte, 0)
-	for y := 1; y < len(newWorld)-2; y++ {
-		worldToSend = append(worldToSend, newWorld[y])
-	}
-	res.LastWorld = worldToSend
+	res.LastWorld = newWorld
 	return
 }
 

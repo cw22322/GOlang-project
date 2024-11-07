@@ -52,58 +52,59 @@ func calculateAliveCells(world [][]byte) []util.Cell {
 	return alivecells
 }
 
-func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
-	for _, element := range Ports {
-
-		var worldToSend = make([][]byte, 0)
-		for y := startY; y < endY; y++ {
-			ny := y
-			if ny < 0 {
-				ny = len(world) - 1
-			}
-			if ny >= len(world) {
-				ny = 0
-			}
-			worldToSend = append(worldToSend, world[ny])
-		}
-
-		request := Request{
-			Params: p,
-			World:  worldToSend,
-		}
-		var res Response
-		serverAddr := "127.0.0.1:" + strconv.Itoa(element)
-		client, _ := rpc.Dial("tcp", serverAddr)
-		client.Call("GameOfLife.CalculateNextState", request, &res)
-		world = res.LastWorld
-		out <- world
+func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, port int) {
+	var worldToSend = make([][]byte, 0)
+	for y := startY; y <= endY; y++ {
+		ny := (y + p.ImageHeight) % p.ImageHeight
+		worldToSend[y-startY] = world[ny]
 	}
+
+	request := Request{
+		Params: p,
+		World:  worldToSend,
+	}
+	var res Response
+	serverAddr := "127.0.0.1:" + strconv.Itoa(port)
+	client, _ := rpc.Dial("tcp", serverAddr)
+	client.Call("GameOfLife.CalculateNextState", request, &res)
+	defer client.Close()
+	world = res.LastWorld
+	out <- world
 }
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 	turn = 0
 	g.world = req.World
 	p := req.Params
-	workerHeight := p.ImageHeight / 4
-	out := make([]chan [][]byte, 4)
-	for i := range out {
-		out[i] = make(chan [][]byte)
-	}
-	for turn < req.Turns {
-		mu.Lock()
+	workerHeight := p.ImageHeight / 2
+
+	for turn := 0; turn < p.Turns; turn++ {
+		out := make([]chan [][]byte, 4)
 		for i := 0; i < 4; i++ {
-			go worker(i*workerHeight-1, (i+1)*workerHeight+1, p, g.world, out[i])
+			out[i] = make(chan [][]byte)
 		}
-		turn++
-		mu.Unlock()
+
+		for i := 0; i < 4; i++ {
+			startY := (i * workerHeight) % p.ImageHeight
+			endY := (startY + workerHeight - 1) % p.ImageHeight
+			if i == 3 {
+				endY = p.ImageHeight - 1
+			}
+			go worker(startY-1, endY+1, p, g.world, out[i], Ports[i])
+		}
+		newWorld := make([][]byte, p.ImageHeight)
+		index := 0
+		for i := 0; i < 4; i++ {
+			workerResult := <-out[i]
+			workerHeight := len(workerResult) - 2
+			copy(newWorld[index:index+workerHeight], workerResult[1:len(workerResult)-1])
+			index += workerHeight
+		}
+		g.world = newWorld
 	}
-	g.world = make([][]byte, 0)
-	for _, result := range out {
-		g.world = append(g.world, <-result...)
-	}
-	res.AliveCells = calculateAliveCells(g.world)
 	res.LastWorld = g.world
-	res.Turns = turn
+	res.AliveCells = calculateAliveCells(g.world)
+	res.Turns = p.Turns
 
 	return
 }
