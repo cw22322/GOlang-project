@@ -41,9 +41,13 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 	world := req.World
 	startY := req.StartY
 	endY := req.EndY
-	newWorld := make([][]byte, p.ImageHeight)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, p.ImageWidth)
+
+	sliceHeight := endY - startY
+	sliceWidth := len(world[0])
+
+	newSlice := make([][]byte, sliceHeight)
+	for i := range newSlice {
+		newSlice[i] = make([]byte, sliceWidth)
 	}
 
 	for y := 0; y < len(world); y++ {
@@ -63,14 +67,14 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 					}
 
 					if ny < 0 {
-						ny = len(world) - 1
+						ny = len(newSlice) - 1
 					}
 
 					if nx >= len(world[0]) {
 						nx = 0
 					}
 
-					if ny >= len(world) {
+					if ny >= len(newSlice) {
 						ny = 0
 					}
 
@@ -83,23 +87,23 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 			}
 			if world[y][x] == 255 {
 				if alive < 2 {
-					newWorld[y][x] = 0
+					newSlice[y][x] = 0
 				} else if alive == 2 || alive == 3 {
-					newWorld[y][x] = 255
+					newSlice[y][x] = 255
 				} else {
-					newWorld[y][x] = 0
+					newSlice[y][x] = 0
 				}
 			} else {
 				if alive == 3 {
-					newWorld[y][x] = 255
+					newSlice[y][x] = 255
 
 				} else {
-					newWorld[y][x] = 0
+					newSlice[y][x] = 0
 				}
 			}
 		}
 	}
-	res.LastWorld = newWorld
+	res.LastWorld = newSlice
 	return
 }
 
