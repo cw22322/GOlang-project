@@ -95,7 +95,11 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 			}
 		}
 	}
-	res.LastWorld = newWorld
+	worldToSend := make([][]byte, 0)
+	for y := 1; y < len(newWorld)-2; y++ {
+		worldToSend = append(worldToSend, newWorld[y])
+	}
+	res.LastWorld = worldToSend
 	return
 }
 

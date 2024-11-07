@@ -97,7 +97,8 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 		turn++
 		mu.Unlock()
 	}
-	for i, result := range out {
+	g.world = make([][]byte, 0)
+	for _, result := range out {
 		g.world = append(g.world, <-result...)
 	}
 	res.AliveCells = calculateAliveCells(g.world)
