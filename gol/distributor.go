@@ -64,13 +64,14 @@ func distributor(p Params, c distributorChannels) {
 		defer ticker.Stop()
 		for {
 			select {
-			case key := <-c.KeyPresses:
-				switch key {
-				case 's':
-					mu.Lock()
-					client.Call("GameOfLife.Save", nil, &response)
-
-				}
+			/*
+				case key := <-c.KeyPresses:
+					switch key {
+					case 's':
+						mu.Lock()
+						client.Call("GameOfLife.Save", nil, &response)
+						mu.Unlock()
+					}*/
 
 			case <-ticker.C:
 				mu.Lock()
@@ -91,7 +92,7 @@ func distributor(p Params, c distributorChannels) {
 	client.Call("GameOfLife.ProcessTurns", request, &response)
 	World = response.LastWorld
 	alive := response.AliveCells
-	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: alive}
+	c.events <- FinalTurnComplete{CompletedTurns: response.Turns, Alive: alive}
 
 	c.ioCommand <- ioOutput
 	filename = filename + "x" + strconv.Itoa(p.Turns)

@@ -57,13 +57,14 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 		request.World = g.world
 		request.Params = req.Params
 		var response Response
-		client.Call("GameOfLife.CalculateNextState", request, response)
+		client.Call("GameOfLife.CalculateNextState", request, &response)
 		g.world = response.LastWorld
 		turn++
 		mu.Unlock()
 	}
 	res.AliveCells = calculateAliveCells(req.Params, g.world)
 	res.LastWorld = g.world
+	res.Turns = turn
 
 	return
 }
