@@ -40,7 +40,7 @@ type GameOfLife struct {
 	world [][]byte
 }
 
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
+func calculateAliveCells(world [][]byte) []util.Cell {
 	var alivecells []util.Cell
 	for y := 0; y < len(world); y++ {
 		for x := 0; x < len(world[0]); x++ {
@@ -57,7 +57,14 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
 
 		var worldToSend = make([][]byte, 0)
 		for y := startY; y < endY; y++ {
-			worldToSend = append(worldToSend, world[y])
+			ny := y
+			if ny < 0 {
+				ny = len(world) - 1
+			}
+			if ny >= len(world) {
+				ny = 0
+			}
+			worldToSend = append(worldToSend, world[ny])
 		}
 
 		request := Request{
@@ -68,24 +75,32 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
 		serverAddr := "127.0.0.1:" + strconv.Itoa(element)
 		client, _ := rpc.Dial("tcp", serverAddr)
 		client.Call("GameOfLife.CalculateNextState", request, &res)
+		world = res.LastWorld
+		out <- world
 	}
 }
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 	turn = 0
 	g.world = req.World
+	p := req.Params
+	workerHeight := p.ImageHeight / 4
+	out := make([]chan [][]byte, 4)
+	for i := range out {
+		out[i] = make(chan [][]byte)
+	}
 	for turn < req.Turns {
 		mu.Lock()
-		var request Request
-		request.World = g.world
-		request.Params = req.Params
-		var response Response
-		go worker()
-		g.world = response.LastWorld
+		for i := 0; i < 4; i++ {
+			go worker(i*workerHeight-1, (i+1)*workerHeight+1, p, g.world, out[i])
+		}
 		turn++
 		mu.Unlock()
 	}
-	res.AliveCells = calculateAliveCells(req.Params, g.world)
+	for i, result := range out {
+		g.world = append(g.world, <-result...)
+	}
+	res.AliveCells = calculateAliveCells(g.world)
 	res.LastWorld = g.world
 	res.Turns = turn
 
@@ -94,7 +109,7 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 
 func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
 	mu.Lock()
-	alive := calculateAliveCells(req.Params, g.world)
+	alive := calculateAliveCells(g.world)
 	res.AliveCells = alive
 	res.Turns = turn
 	mu.Unlock()
