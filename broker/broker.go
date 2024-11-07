@@ -10,7 +10,7 @@ import (
 )
 
 var mu = sync.Mutex{}
-var Ports = [4]int{8031, 8032}
+var Ports = [2]int{8031, 8032}
 
 type Params struct {
 	Turns       int
@@ -52,14 +52,12 @@ func calculateAliveCells(world [][]byte) []util.Cell {
 }
 
 func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, port int) {
-	numRows := endY - startY + 3 //
-	worldToSend := make([][]byte, numRows)
+	numRows := endY - startY + 3
+	worldToSend := make([][]byte, 0, numRows)
 
-	index := 0
 	for y := startY - 1; y <= endY+1; y++ {
 		ny := (y + p.ImageHeight) % p.ImageHeight
-		worldToSend[index] = world[ny]
-		index++
+		worldToSend = append(worldToSend, world[ny])
 	}
 
 	request := Request{
@@ -96,13 +94,12 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
 			go worker(startY, endY, p, g.world, out[i], Ports[i])
 		}
 
-		newWorld := make([][]byte, p.ImageHeight)
-		index := 0
+		newWorld := make([][]byte, 0, p.ImageHeight)
+
 		for i := 0; i < workerCount; i++ {
 			workerResult := <-out[i]
 			workerRows := workerResult[1 : len(workerResult)-1]
-			copy(newWorld[index:index+len(workerRows)], workerRows)
-			index += len(workerRows)
+			newWorld = append(newWorld, workerRows...)
 		}
 		g.world = newWorld
 	}
