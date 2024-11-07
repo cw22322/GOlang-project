@@ -9,7 +9,7 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-var Ports = [2]int{8031, 8032}
+var Ports = [4]int{8031, 8032, 8033, 8034}
 
 type Params struct {
 	Turns       int
@@ -79,7 +79,7 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
 	g.world = req.World
 	g.mu.Unlock()
 	p := req.Params
-	workerCount := 2
+	workerCount := 4
 	workerHeight := p.ImageHeight / workerCount
 
 	for i := 0; i < p.Turns; i++ {
