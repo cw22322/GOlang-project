@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net"
 	"net/rpc"
+	"strconv"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -17,6 +18,8 @@ type Params struct {
 	Threads     int
 	ImageWidth  int
 	ImageHeight int
+	StartY      int
+	EndY        int
 }
 
 type Request struct {
@@ -50,7 +53,19 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 }
 
 func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
+	for _, element := range Ports {
 
+		request := Request{
+			Params: p,
+			StartY: startY,
+			EndY:   endY,
+			World:  world,
+		}
+		var res Response
+		serverAddr := "127.0.0.1:" + strconv.Itoa(element)
+		client, _ := rpc.Dial("tcp", serverAddr)
+		client.Call("GameOfLife.CalculateNextState", request, &res)
+	}
 }
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
