@@ -37,17 +37,11 @@ var turn int
 var mu = sync.Mutex{}
 
 func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) {
-	p := req.Params
 	world := req.World
-	startY := req.StartY
-	endY := req.EndY
-
-	sliceHeight := endY - startY
-	sliceWidth := len(world[0])
-
-	newSlice := make([][]byte, sliceHeight)
-	for i := range newSlice {
-		newSlice[i] = make([]byte, sliceWidth)
+	p := req.Params
+	newWorld := make([][]byte, p.ImageHeight)
+	for i := range newWorld {
+		newWorld[i] = make([]byte, p.ImageWidth)
 	}
 
 	for y := 0; y < len(world); y++ {
@@ -67,14 +61,14 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 					}
 
 					if ny < 0 {
-						ny = len(newSlice) - 1
+						ny = len(world) - 1
 					}
 
 					if nx >= len(world[0]) {
 						nx = 0
 					}
 
-					if ny >= len(newSlice) {
+					if ny >= len(world) {
 						ny = 0
 					}
 
@@ -86,24 +80,22 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 
 			}
 			if world[y][x] == 255 {
-				if alive < 2 {
-					newSlice[y][x] = 0
-				} else if alive == 2 || alive == 3 {
-					newSlice[y][x] = 255
+				if alive < 2 || alive > 3 {
+					newWorld[y][x] = 0
 				} else {
-					newSlice[y][x] = 0
+					newWorld[y][x] = 255
 				}
 			} else {
 				if alive == 3 {
-					newSlice[y][x] = 255
+					newWorld[y][x] = 255
 
 				} else {
-					newSlice[y][x] = 0
+					newWorld[y][x] = 0
 				}
 			}
 		}
 	}
-	res.LastWorld = newSlice
+	res.LastWorld = newWorld
 	return
 }
 

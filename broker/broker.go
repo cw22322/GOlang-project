@@ -55,11 +55,14 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
 	for _, element := range Ports {
 
+		var worldToSend = make([][]byte, 0)
+		for y := startY; y < endY; y++ {
+			worldToSend = append(worldToSend, world[y])
+		}
+
 		request := Request{
 			Params: p,
-			StartY: startY,
-			EndY:   endY,
-			World:  world,
+			World:  worldToSend,
 		}
 		var res Response
 		serverAddr := "127.0.0.1:" + strconv.Itoa(element)
@@ -70,8 +73,6 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte) {
 
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 	turn = 0
-	serverAddr := "127.0.0.1:8031"
-	client, _ := rpc.Dial("tcp", serverAddr)
 	g.world = req.World
 	for turn < req.Turns {
 		mu.Lock()
@@ -79,7 +80,7 @@ func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
 		request.World = g.world
 		request.Params = req.Params
 		var response Response
-		client.Call("GameOfLife.CalculateNextState", request, &response)
+		go worker()
 		g.world = response.LastWorld
 		turn++
 		mu.Unlock()
