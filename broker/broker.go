@@ -9,9 +9,8 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-var turn int
 var mu = sync.Mutex{}
-var Ports = [4]int{8031, 8032, 8033, 8034}
+var Ports = [4]int{8031, 8032}
 
 type Params struct {
 	Turns       int
@@ -53,68 +52,74 @@ func calculateAliveCells(world [][]byte) []util.Cell {
 }
 
 func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, port int) {
-	var worldToSend = make([][]byte, 0)
-	for y := startY; y <= endY; y++ {
+	numRows := endY - startY + 3 //
+	worldToSend := make([][]byte, numRows)
+
+	index := 0
+	for y := startY - 1; y <= endY+1; y++ {
 		ny := (y + p.ImageHeight) % p.ImageHeight
-		worldToSend[y-startY] = world[ny]
+		worldToSend[index] = world[ny]
+		index++
 	}
 
 	request := Request{
 		Params: p,
 		World:  worldToSend,
 	}
+
 	var res Response
 	serverAddr := "127.0.0.1:" + strconv.Itoa(port)
 	client, _ := rpc.Dial("tcp", serverAddr)
-	client.Call("GameOfLife.CalculateNextState", request, &res)
 	defer client.Close()
-	world = res.LastWorld
-	out <- world
+	client.Call("GameOfLife.CalculateNextState", request, &res)
+	out <- res.LastWorld
 }
 
-func (g *GameOfLife) ProcessTurns(req Request, res *Response) (err error) {
-	turn = 0
+func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
 	g.world = req.World
 	p := req.Params
-	workerHeight := p.ImageHeight / 2
+	workerCount := 2
+	workerHeight := p.ImageHeight / workerCount
 
 	for turn := 0; turn < p.Turns; turn++ {
-		out := make([]chan [][]byte, 4)
-		for i := 0; i < 4; i++ {
+		out := make([]chan [][]byte, workerCount)
+		for i := 0; i < workerCount; i++ {
 			out[i] = make(chan [][]byte)
 		}
 
-		for i := 0; i < 4; i++ {
-			startY := (i * workerHeight) % p.ImageHeight
-			endY := (startY + workerHeight - 1) % p.ImageHeight
-			if i == 3 {
+		for i := 0; i < workerCount; i++ {
+			startY := i * workerHeight
+			endY := startY + workerHeight - 1
+			if i == workerCount-1 {
 				endY = p.ImageHeight - 1
 			}
-			go worker(startY-1, endY+1, p, g.world, out[i], Ports[i])
+			go worker(startY, endY, p, g.world, out[i], Ports[i])
 		}
+
 		newWorld := make([][]byte, p.ImageHeight)
 		index := 0
-		for i := 0; i < 4; i++ {
+		for i := 0; i < workerCount; i++ {
 			workerResult := <-out[i]
-			workerHeight := len(workerResult) - 2
-			copy(newWorld[index:index+workerHeight], workerResult[1:len(workerResult)-1])
-			index += workerHeight
+			workerRows := workerResult[1 : len(workerResult)-1]
+			copy(newWorld[index:index+len(workerRows)], workerRows)
+			index += len(workerRows)
 		}
 		g.world = newWorld
 	}
+
 	res.LastWorld = g.world
 	res.AliveCells = calculateAliveCells(g.world)
 	res.Turns = p.Turns
 
-	return
+	return nil
 }
 
 func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
-	mu.Lock()
-	alive := calculateAliveCells(g.world)
+	p := req.Params
+	world := req.World
+	alive := calculateAliveCells(world)
 	res.AliveCells = alive
-	res.Turns = turn
-	mu.Unlock()
+	res.Turns = p.Turns
 
 	return
 }

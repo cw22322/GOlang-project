@@ -35,49 +35,30 @@ type GameOfLife struct {
 	mu    sync.Mutex
 }
 
-func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) {
+func (g *GameOfLife) CalculateNextState(req Request, res *Response) error {
 	world := req.World
 	p := req.Params
-	newWorld := make([][]byte, p.ImageHeight)
+	newWorld := make([][]byte, len(world))
 	for i := range newWorld {
 		newWorld[i] = make([]byte, p.ImageWidth)
 	}
 
-	for y := 0; y < len(world); y++ {
-		for x := 0; x < len(world[0]); x++ {
+	// Skip the first and last rows (ghost rows)
+	for y := 1; y < len(world)-1; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
 			alive := 0
-
+			// Check neighboring cells
 			for dy := -1; dy <= 1; dy++ {
 				for dx := -1; dx <= 1; dx++ {
 					if dy == 0 && dx == 0 {
 						continue
 					}
-
 					ny := y + dy
-					nx := (x + dx + p.ImageWidth) % p.ImageWidth
-
-					if nx < 0 {
-						nx = len(world[0]) - 1
-					}
-
-					if ny < 0 {
-						ny = len(world) - 1
-					}
-
-					if nx >= len(world[0]) {
-						nx = 0
-					}
-
-					if ny >= len(world) {
-						ny = 0
-					}
-
+					nx := (x + dx + p.ImageWidth) % p.ImageWidth // Wrap around horizontally
 					if world[ny][nx] == 255 {
 						alive++
 					}
-
 				}
-
 			}
 			if world[y][x] == 255 {
 				if alive < 2 || alive > 3 {
@@ -88,15 +69,15 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) (err error) 
 			} else {
 				if alive == 3 {
 					newWorld[y][x] = 255
-
 				} else {
 					newWorld[y][x] = 0
 				}
 			}
 		}
 	}
+
 	res.LastWorld = newWorld
-	return
+	return nil
 }
 
 func main() {

@@ -57,6 +57,8 @@ func distributor(p Params, c distributorChannels) {
 		Turns:  p.Turns,
 	}
 
+	done := make(chan struct{})
+
 	var mu sync.Mutex
 	go func() {
 		var response Response
@@ -64,32 +66,21 @@ func distributor(p Params, c distributorChannels) {
 		defer ticker.Stop()
 		for {
 			select {
-			/*
-				case key := <-c.KeyPresses:
-					switch key {
-					case 's':
-						mu.Lock()
-						client.Call("GameOfLife.Save", nil, &response)
-						mu.Unlock()
-					}*/
-
 			case <-ticker.C:
 				mu.Lock()
 				client.Call("GameOfLife.SendAlive", request, &response)
+				mu.Unlock()
 				foundalive := len(response.AliveCells)
 				c.events <- AliveCellsCount{response.Turns, foundalive}
-				mu.Unlock()
-			default:
-				if response.Turns == p.Turns {
-					return
-				}
-
+			case <-done:
+				return
 			}
 		}
 	}()
 
 	var response Response
 	client.Call("GameOfLife.ProcessTurns", request, &response)
+	close(done)
 	World = response.LastWorld
 	alive := response.AliveCells
 	c.events <- FinalTurnComplete{CompletedTurns: response.Turns, Alive: alive}
