@@ -35,9 +35,11 @@ type Response struct {
 }
 
 type GameOfLife struct {
-	world [][]byte
-	turn  int
-	mu    sync.Mutex
+	world               [][]byte
+	turn                int
+	mu                  sync.Mutex
+	paused              bool
+	controllerConnected bool
 }
 
 func calculateAliveCells(world [][]byte) []util.Cell {
@@ -127,6 +129,20 @@ func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
 	g.mu.Unlock()
 
 	return
+}
+
+func (g *GameOfLife) SetPaused(paused bool, res *Response) error {
+	g.mu.Lock()
+	g.paused = paused
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GameOfLife) ControllerDisconnected(req *Request, res *Response) error {
+	g.mu.Lock()
+	g.controllerConnected = false
+	g.mu.Unlock()
+	return nil
 }
 
 func (g *GameOfLife) Save(req Request, res *Response) (err error) {

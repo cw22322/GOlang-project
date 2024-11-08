@@ -75,12 +75,16 @@ func distributor(p Params, c distributorChannels) {
 				switch key {
 				case 'p':
 					mu.Lock()
+					var state State
 					paused = !paused
 					if paused {
-						c.events <- StateChange{turn, Paused}
+						state = Paused
 					} else {
-						c.events <- StateChange{turn, Executing}
+						state = Executing
 					}
+					var res Response
+					client.Call("GameOfLife.SetPaused", paused, &res)
+					c.events <- StateChange{CompletedTurns: turn, NewState: state}
 					mu.Unlock()
 				case 's':
 					mu.Lock()
@@ -90,7 +94,7 @@ func distributor(p Params, c distributorChannels) {
 					<-c.ioIdle
 
 					c.ioCommand <- ioOutput
-					filename = filename + "x" + strconv.Itoa(p.Turns)
+					filename = filename + "x" + strconv.Itoa(response.Turns)
 					c.ioFilename <- filename
 
 					world := response.LastWorld
@@ -109,6 +113,7 @@ func distributor(p Params, c distributorChannels) {
 					quitting = true
 					c.events <- StateChange{turn, Quitting}
 					mu.Unlock()
+					client.Call("GameOfLife.ControllerDisconnected", nil, &Response{})
 					return
 				}
 			case <-ticker.C:
