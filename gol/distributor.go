@@ -3,7 +3,6 @@ package gol
 import (
 	"fmt"
 	"net/rpc"
-	"strconv"
 	"sync"
 	"time"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -29,6 +28,18 @@ type Response struct {
 	LastWorld  [][]byte
 	AliveCells []util.Cell
 	Turns      int
+}
+
+func saveWorld(c distributorChannels, world [][]byte, p Params) {
+	c.ioCommand <- ioOutput
+	filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, p.Turns)
+	c.ioFilename <- filename
+
+	for y := 0; y < len(world); y++ {
+		for x := 0; x < len(world[0]); x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -60,7 +71,6 @@ func distributor(p Params, c distributorChannels) {
 
 	done := make(chan struct{})
 	paused := false
-	quitting := false
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -72,49 +82,39 @@ func distributor(p Params, c distributorChannels) {
 		for {
 			select {
 			case key := <-c.KeyPresses:
+				var response Response
+				client.Call("GameOfLife.GetInfo", nil, &response)
+				World = response.LastWorld
 				switch key {
 				case 'p':
 					mu.Lock()
-					var state State
-					paused = !paused
-					if paused {
-						state = Paused
+					if !paused {
+						c.events <- StateChange{turn, Paused}
+						client.Call("GameOfLife.Pause", nil, nil)
+						fmt.Println("Engine paused!")
+						paused = true
 					} else {
-						state = Executing
+						client.Call("GameOfLife.Unpause", nil, nil)
+						paused = false
+						c.events <- StateChange{turn, Executing}
 					}
-					var res Response
-					client.Call("GameOfLife.SetPaused", paused, &res)
-					c.events <- StateChange{CompletedTurns: turn, NewState: state}
 					mu.Unlock()
 				case 's':
 					mu.Lock()
-					var response Response
-					client.Call("GameOfLife.Save", request, &response)
-					c.ioCommand <- ioCheckIdle
-					<-c.ioIdle
-
-					c.ioCommand <- ioOutput
-					filename = filename + "x" + strconv.Itoa(response.Turns)
-					c.ioFilename <- filename
-
-					world := response.LastWorld
-					for y := 0; y < len(world); y++ {
-						for x := 0; x < len(world[y]); x++ {
-							c.ioOutput <- world[y][x]
-						}
-					}
-
-					c.ioCommand <- ioCheckIdle
-					<-c.ioIdle
+					c.events <- StateChange{turn, Executing}
+					saveWorld(c, World, p)
 					mu.Unlock()
-					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: filename}
 				case 'q':
-					mu.Lock()
-					quitting = true
-					c.events <- StateChange{turn, Quitting}
 					mu.Unlock()
-					client.Call("GameOfLife.ControllerDisconnected", nil, &Response{})
-					return
+					client.Call("GameOfLife.Quit", nil, nil)
+					c.events <- StateChange{turn, Quitting}
+					saveWorld(c, World, p)
+					mu.Unlock()
+				case 'k':
+					client.Call("GameOfLife.Kill", nil, nil)
+					c.events <- StateChange{turn, Quitting}
+					saveWorld(c, World, p)
+					close(c.events)
 				}
 			case <-ticker.C:
 				mu.Lock()
@@ -131,23 +131,6 @@ func distributor(p Params, c distributorChannels) {
 
 	var alive []util.Cell
 	for turn < p.Turns {
-		mu.Lock()
-		if quitting {
-			mu.Unlock()
-			break
-		}
-		if paused {
-			mu.Unlock()
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		mu.Unlock()
-
-		// Process one turn
-		singleTurnParams := p
-		singleTurnParams.Turns = 1
-		request.Params = singleTurnParams
-
 		var response Response
 		client.Call("GameOfLife.ProcessTurns", request, &response)
 
@@ -155,7 +138,9 @@ func distributor(p Params, c distributorChannels) {
 		mu.Lock()
 		turn++
 		request.World = response.LastWorld
+		World = response.LastWorld
 		mu.Unlock()
+		c.events <- TurnComplete{CompletedTurns: turn}
 
 		alive = response.AliveCells
 	}
@@ -165,16 +150,12 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: alive}
 
 	// Output the final world state
-	c.ioCommand <- ioOutput
-	filename = filename + "x" + strconv.Itoa(p.Turns)
-	c.ioFilename <- filename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- request.World[y][x]
-		}
-	}
+	saveWorld(c, World, p)
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
+
+	outputFilename := fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
+	c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 
 	c.events <- StateChange{turn, Quitting}
 	close(c.events)

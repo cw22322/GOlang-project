@@ -76,6 +76,27 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, por
 	out <- res.LastWorld
 }
 
+func (g *GameOfLife) GetInfo(req Request, res *Response) (err error) {
+	res.LastWorld = g.world
+	res.Turns = g.turn
+	res.AliveCells = calculateAliveCells(g.world)
+	return
+}
+
+func (g *GameOfLife) Pause(req Request, res *Response) (err error) {
+	g.mu.Lock()
+	return
+}
+
+func (g *GameOfLife) Unpause(req Request, res *Response) (err error) {
+	g.mu.Unlock()
+	return
+}
+
+func (g *GameOfLife) Kill(req Request, res *Response) (err error) {
+	return err
+}
+
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
 	g.mu.Lock()
 	g.world = req.World
