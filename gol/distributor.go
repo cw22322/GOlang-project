@@ -19,18 +19,18 @@ type distributorChannels struct {
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
-	var alivecells []util.Cell
+	var aliveCells []util.Cell
 	for y := 0; y < len(world); y++ {
 		for x := 0; x < len(world[0]); x++ {
 			if world[y][x] != 0 {
-				alivecells = append(alivecells, util.Cell{X: x, Y: y})
+				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 			}
 		}
 	}
-	return alivecells
+	return aliveCells
 }
 
-func calculateNextStateSlice(p Params, world [][]byte, startY, endY int, flippedCells chan<- []util.Cell) [][]byte {
+func calculateNextStateSlice(p Params, world [][]byte, startY, endY int) ([][]byte, []util.Cell) {
 	sliceHeight := endY - startY
 	width := len(world[0])
 
@@ -83,15 +83,12 @@ func calculateNextStateSlice(p Params, world [][]byte, startY, endY int, flipped
 		}
 	}
 
-	// Send the local flipped cells back to the main thread
-	flippedCells <- localFlipped
-
-	return newSlice
+	return newSlice, localFlipped
 }
 
-func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, flippedCells chan<- []util.Cell) {
-	newWorldSlice := calculateNextStateSlice(p, world, startY, endY, flippedCells)
-	out <- newWorldSlice
+func worker(startY, endY int, p Params, world [][]byte) ([][]byte, []util.Cell) {
+	newWorldSlice, localFlipped := calculateNextStateSlice(p, world, startY, endY)
+	return newWorldSlice, localFlipped
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -124,28 +121,31 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	stateChan := make(chan State, 1)
-	c.events <- StateChange{turn, Executing}
+	c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case key := <-c.keyPresses:
+				mu.Lock()
 				switch key {
 				case 'p':
-					mu.Lock()
 					paused = !paused
 					if paused {
-						c.events <- StateChange{turn, Paused}
+						c.events <- StateChange{CompletedTurns: turn, NewState: Paused}
 					} else {
 						stateChan <- Executing
-						c.events <- StateChange{turn, Executing}
+						c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
 					}
-					mu.Unlock()
 				case 's':
-					mu.Lock()
 					// Ensure IO operations are idle
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
@@ -166,25 +166,22 @@ func distributor(p Params, c distributorChannels) {
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
 
-					mu.Unlock()
-
 					// Send the ImageOutputComplete event with the correct filename
 					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 				case 'q':
-					mu.Lock()
 					quitting = true
-					//mu.Unlock()
-					// Wait for the IO to finish before quitting
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
 					stateChan <- Quitting
-					mu.Unlock()
 				}
+				mu.Unlock()
 			case <-ticker.C:
 				mu.Lock()
 				aliveCells := calculateAliveCells(p, World)
 				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: len(aliveCells)}
 				mu.Unlock()
+			case <-done:
+				return
 			}
 		}
 	}()
@@ -213,14 +210,14 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	ticker.Stop()
-
 	// Handle quitting: final events, save state, cleanup
+	mu.Lock()
 	alive := calculateAliveCells(p, World)
 	c.events <- FinalTurnComplete{
 		CompletedTurns: turn,
 		Alive:          alive,
 	}
+	mu.Unlock()
 
 	// Save the final state
 	c.ioCommand <- ioCheckIdle
@@ -243,6 +240,11 @@ func distributor(p Params, c distributorChannels) {
 	// Send StateChange event indicating quitting
 	c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
 
+	// Signal the goroutine to stop
+	close(done)
+	// Wait for the goroutine to finish
+	wg.Wait()
+
 	// Close the channel to stop the SDL goroutine gracefully.
 	close(c.events)
 }
@@ -262,8 +264,8 @@ func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, 
 	}
 
 	var wg sync.WaitGroup
-	out := make(chan WorkerResult, numWorkers)
-	flippedCellsChan := make(chan []util.Cell, numWorkers)
+	var mu sync.Mutex
+	var allFlippedCells []util.Cell
 
 	sliceHeight := height / numWorkers
 	remainder := height % numWorkers
@@ -279,43 +281,26 @@ func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, 
 		wg.Add(1)
 		go func(startY, endY int) {
 			defer wg.Done()
-			workerOut := make(chan [][]byte)
-			go worker(startY, endY, p, world, workerOut, flippedCellsChan)
-			newSlice := <-workerOut
-			out <- WorkerResult{startY: startY, slice: newSlice}
+			newSlice, localFlipped := worker(startY, endY, p, world)
+
+			// Protect access to newWorld and allFlippedCells with a mutex
+			mu.Lock()
+			for i := 0; i < endY-startY; i++ {
+				newWorld[startY+i] = newSlice[i]
+			}
+			allFlippedCells = append(allFlippedCells, localFlipped...)
+			mu.Unlock()
 		}(startY, endY)
 
 		startY = endY
 	}
 
-	go func() {
-		wg.Wait()
-		close(out)
-		close(flippedCellsChan)
-	}()
-
-	// Collect results from workers
-	for result := range out {
-		for i, row := range result.slice {
-			newWorld[result.startY+i] = row
-		}
-	}
-
-	// Collect flipped cells from workers
-	var allFlippedCells []util.Cell
-	for cells := range flippedCellsChan {
-		allFlippedCells = append(allFlippedCells, cells...)
-	}
+	wg.Wait()
 
 	// Send CellsFlipped event if there are any flipped cells
 	if len(allFlippedCells) > 0 {
 		c.events <- CellsFlipped{CompletedTurns: turn + 1, Cells: allFlippedCells}
 	}
 
-	return newWorld //psda
-}
-
-type WorkerResult struct {
-	startY int
-	slice  [][]byte
+	return newWorld
 }
