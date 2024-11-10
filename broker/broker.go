@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net"
 	"net/rpc"
+	"os"
 	"strconv"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -76,6 +77,30 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, por
 	out <- res.LastWorld
 }
 
+func (g *GameOfLife) GetInfo(req Request, res *Response) (err error) {
+	res.LastWorld = g.world
+	res.Turns = g.turn
+	res.AliveCells = calculateAliveCells(g.world)
+	return
+}
+
+func (g *GameOfLife) Pause(req Request, res *Response) (err error) {
+	g.mu.Lock()
+	return
+}
+
+func (g *GameOfLife) Unpause(req Request, res *Response) (err error) {
+	g.mu.Unlock()
+	return
+}
+
+var end = make(chan bool)
+
+func (g *GameOfLife) Kill(req Request, res *Response) (err error) {
+	end <- true
+	return
+}
+
 func (g *GameOfLife) ProcessTurns(req Request, res *Response) error {
 	g.mu.Lock()
 	g.world = req.World
@@ -131,20 +156,6 @@ func (g *GameOfLife) SendAlive(req Request, res *Response) (err error) {
 	return
 }
 
-func (g *GameOfLife) SetPaused(paused bool, res *Response) error {
-	g.mu.Lock()
-	g.paused = paused
-	g.mu.Unlock()
-	return nil
-}
-
-func (g *GameOfLife) ControllerDisconnected(req *Request, res *Response) error {
-	g.mu.Lock()
-	g.controllerConnected = false
-	g.mu.Unlock()
-	return nil
-}
-
 func (g *GameOfLife) Save(req Request, res *Response) (err error) {
 	g.mu.Lock()
 	res.LastWorld = g.world
@@ -153,6 +164,14 @@ func (g *GameOfLife) Save(req Request, res *Response) (err error) {
 }
 
 func main() {
+
+	go func() {
+		for {
+			if <-end {
+				os.Exit(1)
+			}
+		}
+	}()
 	portAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	game := new(GameOfLife)
