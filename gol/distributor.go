@@ -62,6 +62,7 @@ func distributor(p Params, c distributorChannels) {
 	var mu sync.Mutex
 	go func() {
 		var response Response
+		paused := false
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -69,15 +70,16 @@ func distributor(p Params, c distributorChannels) {
 			case key := <-c.keyPresses:
 				switch key {
 				case 'p':
-					c.events <- StateChange{response.Turns, Paused}
-					client.Call("GameOfLife.Paused", nil, nil)
-					for {
-						if <-c.keyPresses == 'p' {
-							client.Call("GameOfLife.Unpause", nil, nil)
-							break
-						}
+					if paused == false {
+						c.events <- StateChange{response.Turns, Paused}
+						client.Call("GameOfLife.Pause", nil, nil)
+						paused = true
+					} else {
+						paused = false
+						c.events <- StateChange{response.Turns, Executing}
+						client.Call("GameOfLife.Unpause", nil, nil)
 					}
-					c.events <- StateChange{response.Turns, Executing}
+
 				case 's':
 					mu.Lock()
 					client.Call("GameOfLife.Save", request, &response)
