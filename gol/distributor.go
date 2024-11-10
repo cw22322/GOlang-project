@@ -30,9 +30,7 @@ type Response struct {
 	Turns      int
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	//var turn int
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
@@ -41,7 +39,6 @@ func distributor(p Params, c distributorChannels) {
 	client, _ := rpc.Dial("tcp", serverAddr)
 	defer client.Close()
 
-	// Load initial world state from input
 	World := make([][]byte, p.ImageHeight)
 	for i := range World {
 		World[i] = make([]byte, p.ImageWidth)
@@ -143,7 +140,6 @@ func distributor(p Params, c distributorChannels) {
 	close(done)
 	World = response.LastWorld
 	alive := response.AliveCells
-	//turn = response.Turns
 	ticker.Stop()
 	c.events <- FinalTurnComplete{CompletedTurns: response.Turns, Alive: alive}
 

@@ -43,18 +43,16 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) error {
 		newWorld[i] = make([]byte, p.ImageWidth)
 	}
 
-	// Skip the first and last rows (ghost rows)
 	for y := 1; y < len(world)-1; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			alive := 0
-			// Check neighboring cells
 			for dy := -1; dy <= 1; dy++ {
 				for dx := -1; dx <= 1; dx++ {
 					if dy == 0 && dx == 0 {
 						continue
 					}
 					ny := y + dy
-					nx := (x + dx + p.ImageWidth) % p.ImageWidth // Wrap around horizontally
+					nx := (x + dx + p.ImageWidth) % p.ImageWidth
 					if world[ny][nx] == 255 {
 						alive++
 					}
