@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net"
 	"net/rpc"
+	"os"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -33,6 +34,13 @@ type GameOfLife struct {
 	world [][]byte
 	turn  int
 	mu    sync.Mutex
+}
+
+var end = make(chan bool)
+
+func (g *GameOfLife) Kill(req Request, res *Response) (err error) {
+	end <- true
+	return
 }
 
 func (g *GameOfLife) CalculateNextState(req Request, res *Response) error {
@@ -79,6 +87,13 @@ func (g *GameOfLife) CalculateNextState(req Request, res *Response) error {
 }
 
 func main() {
+	go func() {
+		for {
+			if <-end {
+				os.Exit(1)
+			}
+		}
+	}()
 	portAddr := flag.String("port", "8031", "Port to listen on")
 	flag.Parse()
 	game := new(GameOfLife)

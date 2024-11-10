@@ -10,7 +10,7 @@ import (
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-var Ports = [4]string{"54.175.10.150:22", "3.84.12.174:22", "3.88.225.118:22", "3.89.111.161:22"}
+var Ports = [4]int{8031, 8032, 8033, 8034}
 
 type Params struct {
 	Turns       int
@@ -168,6 +168,12 @@ func main() {
 	go func() {
 		for {
 			if <-end {
+				for i := 0; i < 4; i++ {
+					serverAddr := "127.0.0.1:" + strconv.Itoa(Ports[i])
+					client, _ := rpc.Dial("tcp", serverAddr)
+					defer client.Close()
+					client.Call("GameOfLife.Kill", nil, nil)
+				}
 				os.Exit(1)
 			}
 		}
