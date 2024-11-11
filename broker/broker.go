@@ -85,12 +85,10 @@ func (g *GameOfLife) GetInfo(req Request, res *Response) (err error) {
 }
 
 func (g *GameOfLife) Pause(req Request, res *Response) (err error) {
-	g.mu.Lock()
 	return
 }
 
 func (g *GameOfLife) Unpause(req Request, res *Response) (err error) {
-	g.mu.Unlock()
 	return
 }
 
