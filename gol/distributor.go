@@ -30,7 +30,7 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	return aliveCells
 }
 
-func calculateNextStateSlice(p Params, world [][]byte, startY, endY int) ([][]byte, []util.Cell) {
+func calculateNextState(p Params, world [][]byte, startY, endY int) ([][]byte, []util.Cell) {
 	sliceHeight := endY - startY
 	width := len(world[0])
 
@@ -87,7 +87,7 @@ func calculateNextStateSlice(p Params, world [][]byte, startY, endY int) ([][]by
 }
 
 func worker(startY, endY int, p Params, world [][]byte) ([][]byte, []util.Cell) {
-	newWorldSlice, localFlipped := calculateNextStateSlice(p, world, startY, endY)
+	newWorldSlice, localFlipped := calculateNextState(p, world, startY, endY)
 	return newWorldSlice, localFlipped
 }
 
@@ -97,7 +97,6 @@ func distributor(p Params, c distributorChannels) {
 	quitting := false
 	var mu sync.Mutex
 
-	// Initialize the world
 	c.ioCommand <- ioInput
 	filename := strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 	c.ioFilename <- filename
@@ -182,7 +181,7 @@ func distributor(p Params, c distributorChannels) {
 
 	for turn < p.Turns {
 		mu.Lock()
-		World = parallelCalculateNextState(p, World, turn, c)
+		World = parallel(p, World, turn, c)
 		pausedCopy := paused
 		quittingCopy := quitting
 		turn++
@@ -210,7 +209,6 @@ func distributor(p Params, c distributorChannels) {
 	}
 	mu.Unlock()
 
-	// Save the final state
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 	c.ioCommand <- ioOutput
@@ -222,7 +220,6 @@ func distributor(p Params, c distributorChannels) {
 			c.ioOutput <- World[y][x]
 		}
 	}
-	// Wait for IO to finish
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
@@ -237,7 +234,7 @@ func distributor(p Params, c distributorChannels) {
 	close(c.events)
 }
 
-func parallelCalculateNextState(p Params, world [][]byte, turn int, c distributorChannels) [][]byte {
+func parallel(p Params, world [][]byte, turn int, c distributorChannels) [][]byte {
 	height := len(world)
 	width := len(world[0])
 
