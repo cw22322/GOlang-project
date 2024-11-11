@@ -91,7 +91,6 @@ func worker(startY, endY int, p Params, world [][]byte) ([][]byte, []util.Cell) 
 	return newWorldSlice, localFlipped
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 	turn := 0
 	paused := false
@@ -114,7 +113,6 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	// Send CellFlipped events for initial alive cells
 	initialAliveCells := calculateAliveCells(p, World)
 	for _, cell := range initialAliveCells {
 		c.events <- CellFlipped{CompletedTurns: turn, Cell: cell}
@@ -146,27 +144,23 @@ func distributor(p Params, c distributorChannels) {
 						c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
 					}
 				case 's':
-					// Ensure IO operations are idle
+
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
 
-					// Start outputting the image
 					c.ioCommand <- ioOutput
 					outputFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, turn)
 					c.ioFilename <- outputFilename
 
-					// Send the world data
 					for y := 0; y < len(World); y++ {
 						for x := 0; x < len(World[0]); x++ {
 							c.ioOutput <- World[y][x]
 						}
 					}
 
-					// Wait for the IO to finish
 					c.ioCommand <- ioCheckIdle
 					<-c.ioIdle
 
-					// Send the ImageOutputComplete event with the correct filename
 					c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 				case 'q':
 					quitting = true
@@ -188,14 +182,12 @@ func distributor(p Params, c distributorChannels) {
 
 	for turn < p.Turns {
 		mu.Lock()
-		// Use worker functions for parallel computation
-		World = parallelCalculateNextStateUsingWorkers(p, World, turn, c)
+		World = parallelCalculateNextState(p, World, turn, c)
 		pausedCopy := paused
 		quittingCopy := quitting
 		turn++
 		mu.Unlock()
 
-		// Send TurnComplete event
 		c.events <- TurnComplete{CompletedTurns: turn}
 
 		if pausedCopy {
@@ -210,7 +202,6 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	// Handle quitting: final events, save state, cleanup
 	mu.Lock()
 	alive := calculateAliveCells(p, World)
 	c.events <- FinalTurnComplete{
@@ -237,19 +228,16 @@ func distributor(p Params, c distributorChannels) {
 
 	c.events <- ImageOutputComplete{CompletedTurns: turn, Filename: outputFilename}
 
-	// Send StateChange event indicating quitting
 	c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
 
-	// Signal the goroutine to stop
 	close(done)
-	// Wait for the goroutine to finish
+
 	wg.Wait()
 
-	// Close the channel to stop the SDL goroutine gracefully.
 	close(c.events)
 }
 
-func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, c distributorChannels) [][]byte {
+func parallelCalculateNextState(p Params, world [][]byte, turn int, c distributorChannels) [][]byte {
 	height := len(world)
 	width := len(world[0])
 
@@ -297,7 +285,6 @@ func parallelCalculateNextStateUsingWorkers(p Params, world [][]byte, turn int, 
 
 	wg.Wait()
 
-	// Send CellsFlipped event if there are any flipped cells
 	if len(allFlippedCells) > 0 {
 		c.events <- CellsFlipped{CompletedTurns: turn + 1, Cells: allFlippedCells}
 	}
