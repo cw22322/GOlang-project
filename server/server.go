@@ -94,7 +94,7 @@ func main() {
 			}
 		}
 	}()
-	portAddr := flag.String("port", "8031", "Port to listen on")
+	portAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	game := new(GameOfLife)
 	rpc.Register(game)
