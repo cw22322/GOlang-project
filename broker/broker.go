@@ -5,12 +5,11 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"strconv"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-var Ports = [4]int{8031, 8032, 8033, 8034}
+var Ports = [4]string{"54.88.110.115:8030", "54.90.136.10:8030", "54.90.238.159:8030", "54.82.22.143:8030"}
 
 type Params struct {
 	Turns       int
@@ -55,7 +54,7 @@ func calculateAliveCells(world [][]byte) []util.Cell {
 	return alivecells
 }
 
-func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, port int) {
+func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, port string) {
 	numRows := endY - startY + 3
 	worldToSend := make([][]byte, 0, numRows)
 
@@ -70,7 +69,7 @@ func worker(startY, endY int, p Params, world [][]byte, out chan<- [][]byte, por
 	}
 
 	var res Response
-	serverAddr := "127.0.0.1:" + strconv.Itoa(port)
+	serverAddr := port
 	client, _ := rpc.Dial("tcp", serverAddr)
 	defer client.Close()
 	client.Call("GameOfLife.CalculateNextState", request, &res)
@@ -167,7 +166,7 @@ func main() {
 		for {
 			if <-end {
 				for i := 0; i < 4; i++ {
-					serverAddr := "127.0.0.1:" + strconv.Itoa(Ports[i])
+					serverAddr := Ports[i]
 					client, _ := rpc.Dial("tcp", serverAddr)
 					defer client.Close()
 					client.Call("GameOfLife.Kill", nil, nil)
